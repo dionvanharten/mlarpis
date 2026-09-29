@@ -1,0 +1,24 @@
+---
+title: "My first quarto presentation"
+author: 
+  - name: "Dion van Harten"
+    orcid: 0009-0001-9798-6931
+format: revealjs
+editor: visual
+---
+
+## My favorite equation
+
+The Taylor series of $e^x$: for all $x\in\mathbb{R}$, can be written as
+
+$$
+e^x=1+x+\frac{x^2}{2!}+\frac{x^3}{3!}+\dots=\sum^\infty_{k=0}\frac{x^k}{k!}.
+$$
+
+## Information about me
+
+My last name is not related to hearts, but it refers to deers. In the old dutch language, this was written as "harten" (now "herten").
+
+::: {.fragment .fade-up}
+![](2_exercise_1_files/hert.jpg)
+:::
