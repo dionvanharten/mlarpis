@@ -1,0 +1,146 @@
+---
+title: "reproducible_simulation"
+format: pdf
+editor: visual
+---
+
+Download the necessary packages.
+
+```{r}
+#| warning: FALSE
+library(Hmisc) # for data wrangling
+library(mice) # for missing data imputation
+library(tidyverse) # for data wrangling
+library(renv) # for package environment
+```
+
+Set up environment
+```{r}
+renv::restore()
+```
+
+Import the data files and merge them to one data frame.
+
+```{r}
+#| output: FALSE
+# import the raw data
+d1 <- sasxport.get("data/DEMO_I.xpt")
+d2 <- sasxport.get("data/BPX_I.xpt")
+d3 <- sasxport.get("data/BMX_I.xpt")
+d4 <- sasxport.get("data/GHB_I.xpt")
+d5 <- sasxport.get("data/TCHOL_I.xpt")
+
+# select relevant variables
+d1.t <- subset(d1,select=c("seqn","riagendr","ridageyr"))
+d2.t <- subset(d2,select=c("seqn","bpxsy1"))
+d3.t <- subset(d3,select=c("seqn","bmxbmi"))
+d4.t <- subset(d4,select=c("seqn","lbxgh"))
+d5.t <- subset(d5,select=c("seqn","lbdtcsi"))
+
+# merge the variables into 1 data frame
+d <- merge(d1.t,d2.t)
+d <- merge(d,d3.t)
+d <- merge(d,d4.t)
+d <- merge(d,d5.t)
+```
+
+Rename the variables.
+
+```{r}
+# rename variables:
+# RIAGENDR - Gender
+# RIDAGEYR - Age in years at screening
+# BPXSY1 - Systolic: Blood pres (1st rdg) mm Hg
+# BMXBMI - Body Mass Index (kg/m**2)
+# LBDTCSI - Total Cholesterol (mmol/L)
+# LBXGH - Glycohemoglobin (%)
+d$age <- d$ridageyr
+d$sex <- d$riagendr
+d$bp <- d$bpxsy1
+d$bmi <- d$bmxbmi
+d$HbA1C <- d$lbxgh
+d$chol <- d$lbdtcsi
+d$age[d$age<18] <- NA
+
+```
+
+Remove NA values.
+
+```{r}
+# select complete cases:
+dc <- cc(subset(d,select=c("age","sex","bmi","HbA1C","bp")))
+```
+
+Linear regression analysis.
+
+```{r}
+# analysis:
+summary(lm(bp ~ HbA1C + age + as.factor(sex), data=dc))
+confint(lm(bp ~ HbA1C + age + as.factor(sex), data=dc))
+summary(lm(bp ~ HbA1C + bmi + age + as.factor(sex), data=dc))
+confint(lm(bp ~ HbA1C + bmi + age + as.factor(sex), data=dc))
+
+```
+
+Set up a simulation for the influence of measurement error on the estimate of the beta coefficient for HbA1C in a linear regression model.
+
+```{r, cache=TRUE}
+# set seed
+set.seed(123)
+
+# real coefficent for HbA1C
+ref <- lm(bp ~ HbA1C + bmi + age + as.factor(sex), data=dc)$coef[2]
+
+# number of simulations
+n.sim <- 1000
+
+# set up different variance scenarios from .0 to .5 per .1 increment
+scenarios <- expand.grid(seq(0,.5,.1),seq(0,.5,.1))
+
+# actual variance of HbA1C
+var.exp <- var(dc$HbA1C)
+
+# actual variance of bmi
+var.conf <- var(dc$bmi)
+n <- dim(dc)[1]
+beta.hat <- matrix(ncol=dim(scenarios)[1], nrow=n.sim)
+# loop over n simulations
+for (k in 1:n.sim){
+  for (i in 1:dim(scenarios)[1]){
+    # compute new variance
+    var.me.exp <- var.exp*scenarios[i,1]/(1-scenarios[i,1])
+    var.me.conf <- var.conf*scenarios[i,2]/(1-scenarios[i,2])
+    # resample data based on new variance (and normality)
+    dc$HbA1C.me <- dc$HbA1C + rnorm(dim(dc)[1], 0, sqrt(var.me.exp) )
+    dc$bmi.me <- dc$bmi + rnorm(dim(dc)[1], 0, sqrt(var.me.conf) )
+    # perform regression analysis based on new variance
+    beta.hat[k,i] <- lm(bp ~ HbA1C.me + age + bmi.me + as.factor(sex), data=dc)$coef[2]
+  }}
+```
+
+Create a figure for the different combinations of variance for BMI and HbA1c and the resulting beta coefficient obtained from the linear model.
+
+```{r}
+# create figure:
+tot.mat <- cbind(100*scenarios,apply(beta.hat,2,mean))
+colnames(tot.mat) <- c("me.exp","me.conf","estimate")
+FIGURE <- ggplot(tot.mat, aes(me.exp, me.conf)) +
+  geom_tile(color="white",aes(fill = estimate)) +
+  geom_text(aes(label = round(estimate, 2))) +
+  scale_fill_gradient2(low="#D55E00",mid="white",high = "#56B4E9", midpoint=ref) +
+  labs(x=paste("% of total variance of HbA1c due to measurement error"),
+       y=paste("% of total variance of BMI due to measurement error")) +
+  coord_equal()+
+  scale_y_continuous(breaks=unique(tot.mat[,1]))+
+  scale_x_continuous(breaks=unique(tot.mat[,1]))+
+  theme(panel.background = element_rect(fill='white', colour='grey'),
+        plot.title=element_text(hjust=0),
+        axis.ticks=element_blank(),
+        axis.title=element_text(size=12),
+        axis.text=element_text(size=10),
+        legend.title=element_text(size=12),
+        legend.text=element_text(size=10))
+FIGURE
+```
+
+What we see is that, when the variance of HbA1c increases, the beta coefficient tends to be lower. But as the variance of BMI increases, the beta coefficient for HbA1c tends to be higher. There is probably a high correlation between both variables, and as one of the two becomes more variant, that usually highers the beta coefficient for the other variable.
